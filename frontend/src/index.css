@@ -137,6 +137,18 @@ body {
 .delay-300 { animation-delay: 300ms; }
 
 /* ============================
+   SVG MAP ANIMATIONS
+   ============================ */
+@keyframes mapRippleA {
+  0%, 100% { opacity: 0.65; }
+  50%       { opacity: 0.08; }
+}
+@keyframes mapRippleB {
+  0%, 100% { opacity: 0.3; }
+  50%       { opacity: 0.04; }
+}
+
+/* ============================
    SCROLLBAR
    ============================ */
 ::-webkit-scrollbar { width: 0; background: transparent; }
