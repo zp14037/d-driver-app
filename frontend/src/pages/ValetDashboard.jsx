@@ -1,28 +1,34 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Key } from 'lucide-react';
+import { ArrowLeft, Key, ChevronDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import BottomNav from '@/components/BottomNav';
 import { ValetMap } from '@/components/ResortMap';
 import { toast } from 'sonner';
 
-// ── Helpers ────────────────────────────────────────────────────────────
+// ── helpers ────────────────────────────────────────────────────────────
 const fmt = s => {
   const h = String(Math.floor(s / 3600)).padStart(2, '0');
   const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
   return `${h}:${m}:${String(s % 60).padStart(2, '0')}`;
 };
 
-// ── Task constants ──────────────────────────────────────────────────────
-const FETCH = { plate: 'MH-12-AB-1234', location: 'Phase II, Opp V11', phase: 'phase2', hook: '45' };
-const DUAL  = {
-  keyHook: '67', parkPhase: 'phase2', fetchPhase: 'phase2',
-  patelPlate: 'GJ-01-KA-4523',
-  nareshPlate: 'MH-09-NR-7890', guestName: 'Mr. Naresh', guestPhone: '9833468743',
+// ── task constants ──────────────────────────────────────────────────────
+// FETCH = the pending retrieval task (Car 1, Guest 1)
+const FETCH = {
+  plate: 'DL04XY5678',
+  carLabel: 'Car 1',
+  guestLabel: 'Guest 1',
+  location: 'Phase II, Opp V11',
+  phase: 'phase2',
+  hook: '67',  // locker hook where Car 1's key is stored
 };
 
-// ── Shared slide ────────────────────────────────────────────────────────
+const SLOT_CHIPS = ['Opp V11', 'Front Row', 'Level B2', 'Near Exit', 'Bay 05', 'Block C'];
+const COUNTRY_CODES = ['+91', '+1', '+44', '+971', '+65', '+49'];
+
+// ── slide animation ─────────────────────────────────────────────────────
 const slide = {
   initial: { opacity: 0, x: 55 },
   animate: { opacity: 1, x: 0 },
@@ -30,15 +36,12 @@ const slide = {
   transition: { duration: 0.22, ease: [0.4, 0, 0.2, 1] },
 };
 
-// ── OTP Input — 4 real focusable inputs (module-level: stable reference)
-// CRITICAL: Must be defined OUTSIDE ValetDashboard to prevent remount on every
-// parent render (which would kill focus/value on every keystroke).
+// ── OTP Input — 4 real inputs at module level (stable reference) ─────────
 const OtpInput = ({ value, onChange }) => {
   const r0 = useRef(null), r1 = useRef(null), r2 = useRef(null), r3 = useRef(null);
   const refs = [r0, r1, r2, r3];
-  const d = [value[0] || '', value[1] || '', value[2] || '', value[3] || ''];
+  const d = [value[0]||'', value[1]||'', value[2]||'', value[3]||''];
 
-  // Focus first empty box after slide animation settles
   useEffect(() => {
     const idx = d.findIndex(v => !v);
     const t = setTimeout(() => refs[Math.max(0, idx)].current?.focus(), 300);
@@ -57,18 +60,13 @@ const OtpInput = ({ value, onChange }) => {
         <input key={i} ref={refs[i]}
           type="tel" inputMode="numeric" maxLength={1}
           className="w-14 h-16 rounded-2xl text-center text-2xl font-mono font-bold border focus:outline-none"
-          style={{
-            background: 'hsl(0 0% 12%)',
-            borderColor: d[i] ? 'hsl(0 0% 60%)' : 'hsl(0 0% 20%)',
-            color: 'hsl(0 0% 96%)',
-            transition: 'border-color 0.15s',
-          }}
+          style={{ background:'hsl(0 0% 12%)', borderColor:d[i]?'hsl(0 0% 60%)':'hsl(0 0% 20%)', color:'hsl(0 0% 96%)', transition:'border-color 0.15s' }}
           value={d[i]}
-          onChange={e => upd(i, e.target.value.replace(/[^0-9]/g, '').slice(-1))}
+          onChange={e => upd(i, e.target.value.replace(/[^0-9]/g,'').slice(-1))}
           onKeyDown={e => {
-            if (e.key === 'Backspace' && !d[i] && i > 0) {
-              const next = [...d]; next[i - 1] = '';
-              onChange(next.join('')); refs[i - 1].current?.focus();
+            if (e.key==='Backspace' && !d[i] && i>0) {
+              const next=[...d]; next[i-1]='';
+              onChange(next.join('')); refs[i-1].current?.focus();
             }
           }}
         />
@@ -77,13 +75,13 @@ const OtpInput = ({ value, onChange }) => {
   );
 };
 
-// ── Shared micro-components (pure presentational, no inner state/hooks) ─
+// ── shared micro-components ──────────────────────────────────────────────
 const ActionBtn = ({ children, onClick, disabled }) => (
-  <div className="px-5 pt-3 pb-24 flex-shrink-0" style={{ borderTop: '1px solid hsl(0 0% 11%)' }}>
+  <div className="px-5 pt-3 pb-24 flex-shrink-0" style={{ borderTop:'1px solid hsl(0 0% 11%)' }}>
     <motion.button
       className="w-full h-16 rounded-pill bg-foreground text-background font-bold text-sm tracking-wide disabled:opacity-35"
       whileTap={{ scale: 0.975 }} onClick={onClick} disabled={disabled}
-      style={{ transition: 'opacity 0.2s' }}
+      style={{ transition:'opacity 0.2s' }}
     >{children}</motion.button>
   </div>
 );
@@ -98,15 +96,16 @@ const HardStopBadge = () => (
 const StepHdr = ({ tag, back, step, total }) => (
   <div className="flex items-center gap-3 px-5 pt-12 pb-4 flex-shrink-0">
     {back && (
-      <button className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center text-muted-foreground flex-shrink-0"
-        onClick={back}><ArrowLeft size={15} /></button>
+      <button className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center text-muted-foreground flex-shrink-0" onClick={back}>
+        <ArrowLeft size={15} />
+      </button>
     )}
     <p className="text-[9px] font-bold uppercase tracking-[0.28em] text-muted-foreground flex-1">{tag}</p>
     {step && (
       <div className="flex gap-1.5 flex-shrink-0">
-        {Array.from({ length: total }).map((_, i) => (
+        {Array.from({ length: total }).map((_,i) => (
           <div key={i} className="h-1.5 rounded-full"
-            style={{ width: i + 1 === step ? '18px' : '5px', background: i + 1 <= step ? 'hsl(0 0% 96%)' : 'hsl(0 0% 18%)', transition: 'all 0.3s' }} />
+            style={{ width:i+1===step?'18px':'5px', background:i+1<=step?'hsl(0 0% 96%)':'hsl(0 0% 18%)', transition:'all 0.3s' }} />
         ))}
       </div>
     )}
@@ -125,40 +124,43 @@ const MapBlock = ({ dest, keyBadge }) => (
   <>
     {keyBadge && (
       <div className="mx-5 mb-3 rounded-2xl px-5 py-4 flex-shrink-0 relative"
-        style={{ background: 'hsl(43 77% 52% / 0.07)', border: '1.5px solid hsl(43 77% 52% / 0.42)' }}>
-        <div className="h-px mb-3" style={{ background: 'linear-gradient(90deg,transparent,hsl(43 77% 52%/0.7),transparent)' }} />
-        <p className="text-[9px] font-bold uppercase tracking-[0.25em] mb-1.5" style={{ color: 'hsl(43 77% 62%)' }}>Fetch Key From</p>
+        style={{ background:'hsl(43 77% 52% / 0.07)', border:'1.5px solid hsl(43 77% 52% / 0.42)' }}>
+        <div className="h-px mb-3" style={{ background:'linear-gradient(90deg,transparent,hsl(43 77% 52%/0.7),transparent)' }} />
+        <p className="text-[9px] font-bold uppercase tracking-[0.25em] mb-1.5" style={{ color:'hsl(43 77% 62%)' }}>Fetch Key From</p>
         <div className="flex items-center gap-3">
-          <Key size={15} style={{ color: 'hsl(43 77% 52%)' }} />
+          <Key size={15} style={{ color:'hsl(43 77% 52%)' }} />
           <span className="text-foreground/50 text-sm">Locker</span>
-          <span className="font-mono font-black text-[2.5rem] leading-none" style={{ color: 'hsl(43 77% 52%)' }}>#{keyBadge}</span>
+          <span className="font-mono font-black text-[2.5rem] leading-none" style={{ color:'hsl(43 77% 52%)' }}>#{keyBadge}</span>
         </div>
       </div>
     )}
-    <div className="mx-5 flex-1 rounded-2xl overflow-hidden border border-border mb-3" style={{ minHeight: '155px', maxHeight: '220px' }}>
+    <div className="mx-5 flex-1 rounded-2xl overflow-hidden border border-border mb-3" style={{ minHeight:'155px', maxHeight:'220px' }}>
       <ValetMap destination={dest} />
     </div>
   </>
 );
 
-// Key gate inlined helper to avoid inner-component remount issues
-const keyGateStyle = { background: 'hsl(43 77% 52% / 0.09)', border: '1px solid hsl(43 77% 52% / 0.3)' };
+const keyGateStyle = { background:'hsl(43 77% 52% / 0.09)', border:'1px solid hsl(43 77% 52% / 0.3)' };
 
 // ══ MAIN COMPONENT ══════════════════════════════════════════════════════
 export default function ValetDashboard() {
   const navigate = useNavigate();
 
   // State machine
-  // idle | park-capture | park-routing | park-key-gate
-  // fetch-routing | fetch-otp-gate
-  // dual-step1 | dual-step2-routing | dual-step3-routing
-  // dual-step4-otp | dual-step5-key
-  const [step, setStep]                 = useState('idle');
+  // idle | park-form | park-routing | park-confirm | park-key
+  // dual-fetch | dual-otp | dual-key
+  // fetch-routing | fetch-otp
+  const [step, setStep] = useState('idle');
+
+  // Tasks: fetchPending = Car 1 (Guest 1) retrieval is assigned
   const [fetchPending, setFetchPending] = useState(true);
-  const [dualPending, setDualPending]   = useState(true);
-  const [form, setForm]     = useState({ plate: '', phone: '' });
-  const [keyHook, setKeyHook] = useState('');
-  const [otp, setOtp]         = useState('');
+
+  // Form state
+  const [form, setForm]         = useState({ plate: '', phone: '', slot: '' });
+  const [countryCode, setCC]    = useState('+91');
+  const [showCodes, setShowCodes] = useState(false);
+  const [keyHook, setKeyHook]   = useState('');
+  const [otp, setOtp]           = useState('');
 
   // Shift timer
   const [busy, setBusy] = useState(11115);
@@ -175,32 +177,37 @@ export default function ValetDashboard() {
 
   const go = s => setStep(s);
   const clearGates = () => { setKeyHook(''); setOtp(''); };
-  const otpFilled  = otp.replace(/[^0-9]/g, '').length >= 4;
+  const otpFilled = otp.replace(/[^0-9]/g, '').length >= 4;
 
-  // ── shared focused-input style ──────────────────────────────────────
-  const inputFocus = e => { e.target.style.borderColor = 'hsl(43 77% 52% / 0.45)'; };
-  const inputBlur  = e => { e.target.style.borderColor = ''; };
+  // Step totals: 6 steps if fetch task also pending, else 4
+  const parkTotal = fetchPending ? 6 : 4;
+
+  const focusStyle = {
+    onFocus: e => { e.target.style.borderColor = 'hsl(43 77% 52% / 0.45)'; },
+    onBlur:  e => { e.target.style.borderColor = ''; },
+    style: { transition: 'border-color 0.2s' },
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col overflow-hidden">
 
-      {/* ── MODE TOGGLE ──────────────────────────────────────── */}
+      {/* ── MODE TOGGLE ─────────────────────────────────── */}
       <header className="sticky top-0 z-20 px-5 pt-12 pb-3 border-b border-border flex-shrink-0"
-        style={{ background: 'hsl(0 0% 4% / 0.97)', backdropFilter: 'blur(16px)' }}>
+        style={{ background:'hsl(0 0% 4% / 0.97)', backdropFilter:'blur(16px)' }}>
         <div className="flex bg-secondary rounded-pill p-1">
           <div className="flex-1 py-2.5 rounded-pill bg-foreground text-center text-[11px] font-bold text-background tracking-[0.22em] uppercase">Valet</div>
           <button className="flex-1 py-2.5 text-center text-[11px] font-medium text-muted-foreground tracking-[0.22em] uppercase"
-            style={{ transition: 'color 0.2s' }} onClick={() => navigate('/fleet')}>Fleet</button>
+            style={{ transition:'color 0.2s' }} onClick={() => navigate('/fleet')}>Fleet</button>
         </div>
       </header>
 
-      {/* ── SHIFT TIMER ──────────────────────────────────────── */}
-      <div className="px-5 py-4 flex-shrink-0" style={{ background: 'hsl(0 0% 7%)', borderBottom: '1px solid hsl(0 0% 12%)' }}>
+      {/* ── SHIFT TIMER ─────────────────────────────────── */}
+      <div className="px-5 py-4 flex-shrink-0" style={{ background:'hsl(0 0% 7%)', borderBottom:'1px solid hsl(0 0% 12%)' }}>
         <div className="flex items-center">
           <div className="flex-1">
             <div className="flex items-center gap-1.5 mb-1">
-              <div className={`w-1.5 h-1.5 rounded-full ${isBusy ? 'animate-status-pulse' : ''}`}
-                style={{ backgroundColor: isBusy ? 'hsl(142 70% 42%)' : 'hsl(0 0% 24%)' }} />
+              <div className={`w-1.5 h-1.5 rounded-full ${isBusy?'animate-status-pulse':''}`}
+                style={{ backgroundColor:isBusy?'hsl(142 70% 42%)':'hsl(0 0% 24%)' }} />
               <span className="text-[9px] font-bold uppercase tracking-[0.3em] text-muted-foreground">Busy Time</span>
             </div>
             <p className="font-mono text-[1.65rem] font-bold text-foreground tabular leading-none">{fmt(busy)}</p>
@@ -208,8 +215,8 @@ export default function ValetDashboard() {
           <div className="w-px h-12 bg-border mx-4" />
           <div className="flex-1">
             <div className="flex items-center gap-1.5 mb-1">
-              <div className={`w-1.5 h-1.5 rounded-full ${!isBusy ? 'animate-status-pulse' : ''}`}
-                style={{ backgroundColor: !isBusy ? 'hsl(0 72% 51%)' : 'hsl(0 0% 24%)' }} />
+              <div className={`w-1.5 h-1.5 rounded-full ${!isBusy?'animate-status-pulse':''}`}
+                style={{ backgroundColor:!isBusy?'hsl(0 72% 51%)':'hsl(0 0% 24%)' }} />
               <span className="text-[9px] font-bold uppercase tracking-[0.3em] text-muted-foreground">Free Time</span>
             </div>
             <p className="font-mono text-[1.65rem] font-bold text-foreground tabular leading-none">{fmt(free)}</p>
@@ -217,73 +224,44 @@ export default function ValetDashboard() {
         </div>
       </div>
 
-      {/* ── STATE MACHINE ────────────────────────────────────── */}
+      {/* ── STATE MACHINE ───────────────────────────────── */}
       <div className="flex-1 relative overflow-hidden">
         <AnimatePresence mode="wait">
 
-          {/* ═══════ IDLE ═══════ */}
+          {/* ═══ IDLE ═══ */}
           {step === 'idle' && (
             <motion.div key="idle" className="absolute inset-0 flex flex-col"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
+              initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }} transition={{ duration:0.2 }}>
 
               <div className="flex-1 flex items-center justify-center px-5 py-4">
                 <AnimatePresence mode="wait">
-                  {/* Dual task card */}
-                  {dualPending && (
-                    <motion.div key="dual-card" className="w-full rounded-3xl overflow-hidden"
-                      style={{ border: '1.5px solid hsl(43 77% 52% / 0.42)' }}
-                      initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                      exit={{ scale: 0.95, opacity: 0 }} transition={{ type: 'spring', stiffness: 280, damping: 28 }}>
-                      <div className="h-px" style={{ background: 'linear-gradient(90deg,transparent,hsl(43 77% 52%/0.8),transparent)' }} />
-                      <div className="px-6 py-5" style={{ background: 'hsl(43 77% 52% / 0.04)' }}>
-                        <div className="flex items-center gap-2 mb-5">
-                          <span style={{ color: 'hsl(43 77% 52%)', fontSize: '11px' }}>✦</span>
-                          <span className="text-[10px] font-black uppercase tracking-[0.28em]" style={{ color: 'hsl(43 77% 60%)' }}>Smart Dual-Task</span>
-                        </div>
-                        {[
-                          { n:'1', text:`Grab Key #${DUAL.keyHook} — Mr. Naresh's car (Phase 2).` },
-                          { n:'2', text:`Drive Mr. Patel's car to Phase 2. Park it.` },
-                          { n:'3', text:`Fetch Mr. Naresh's car (${DUAL.guestPhone}) — same zone.` },
-                          { n:'4', text:`Return to porch. OTP handover to Mr. Naresh.` },
-                          { n:'5', text:`Hang Mr. Patel's key in locker.` },
-                        ].map(({ n, text }) => (
-                          <div key={n} className="flex items-start gap-3.5 mb-3.5 last:mb-0">
-                            <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center flex-shrink-0 mt-0.5">
-                              <span className="text-[10px] font-bold text-muted-foreground">{n}</span>
-                            </div>
-                            <p className="text-sm text-foreground/80 leading-snug">{text}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {/* Fetch task card */}
-                  {!dualPending && fetchPending && (
+                  {/* Fetch task card — only when assigned */}
+                  {fetchPending && (
                     <motion.div key="fetch-card" className="w-full rounded-3xl overflow-hidden"
-                      style={{ border: '1.5px solid hsl(38 85% 52% / 0.4)' }}
-                      initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                      exit={{ scale: 0.95, opacity: 0 }} transition={{ type: 'spring', stiffness: 280, damping: 28 }}>
-                      <div className="h-px" style={{ background: 'linear-gradient(90deg,transparent,hsl(38 85% 52%/0.8),transparent)' }} />
-                      <div className="px-6 py-5" style={{ background: 'hsl(38 85% 52% / 0.04)' }}>
+                      style={{ border:'1.5px solid hsl(38 85% 52% / 0.4)' }}
+                      initial={{ scale:0.92, opacity:0 }} animate={{ scale:1, opacity:1 }}
+                      exit={{ scale:0.95, opacity:0 }} transition={{ type:'spring', stiffness:280, damping:28 }}>
+                      <div className="h-px" style={{ background:'linear-gradient(90deg,transparent,hsl(38 85% 52%/0.8),transparent)' }} />
+                      <div className="px-6 py-5" style={{ background:'hsl(38 85% 52% / 0.04)' }}>
                         <div className="flex items-center gap-2 mb-4">
-                          <div className="w-2 h-2 rounded-full animate-status-pulse" style={{ backgroundColor: 'hsl(38 85% 52%)' }} />
-                          <span className="text-[10px] font-bold uppercase tracking-[0.26em]" style={{ color: 'hsl(38 85% 65%)' }}>Fetch Assigned</span>
+                          <div className="w-2 h-2 rounded-full animate-status-pulse" style={{ backgroundColor:'hsl(38 85% 52%)' }} />
+                          <span className="text-[10px] font-bold uppercase tracking-[0.26em]" style={{ color:'hsl(38 85% 65%)' }}>Fetch Assigned</span>
                         </div>
                         <div className="space-y-3">
                           <div>
                             <p className="text-[9px] text-muted-foreground uppercase tracking-[0.2em] mb-0.5">Vehicle</p>
                             <p className="font-mono text-[1.8rem] font-bold text-foreground tracking-wider leading-none">{FETCH.plate}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{FETCH.carLabel} · {FETCH.guestLabel}</p>
                           </div>
                           <div>
                             <p className="text-[9px] text-muted-foreground uppercase tracking-[0.2em] mb-0.5">Parked at</p>
                             <p className="text-lg font-semibold text-foreground">{FETCH.location}</p>
                           </div>
-                          <div className="rounded-xl px-4 py-3" style={{ background: 'hsl(43 77% 52%/0.07)', border: '1px solid hsl(43 77% 52%/0.3)' }}>
-                            <p className="text-[9px] font-bold uppercase tracking-[0.2em] mb-1.5" style={{ color: 'hsl(43 77% 62%)' }}>Key</p>
+                          <div className="rounded-xl px-4 py-3" style={{ background:'hsl(43 77% 52%/0.07)', border:'1px solid hsl(43 77% 52%/0.3)' }}>
+                            <p className="text-[9px] font-bold uppercase tracking-[0.2em] mb-1.5" style={{ color:'hsl(43 77% 62%)' }}>Key</p>
                             <div className="flex items-baseline gap-2">
                               <span className="text-foreground/45 text-xs">Locker Hook</span>
-                              <span className="font-mono font-black text-[2.2rem] leading-none" style={{ color: 'hsl(43 77% 52%)' }}>#{FETCH.hook}</span>
+                              <span className="font-mono font-black text-[2.2rem] leading-none" style={{ color:'hsl(43 77% 52%)' }}>#{FETCH.hook}</span>
                             </div>
                           </div>
                         </div>
@@ -292,12 +270,12 @@ export default function ValetDashboard() {
                   )}
 
                   {/* Free / clear state */}
-                  {!dualPending && !fetchPending && (
+                  {!fetchPending && (
                     <motion.div key="free" className="text-center"
-                      initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
+                      initial={{ opacity:0, scale:0.94 }} animate={{ opacity:1, scale:1 }}
+                      exit={{ opacity:0 }} transition={{ duration:0.3 }}>
                       <div className="w-16 h-16 rounded-full mx-auto mb-8 flex items-center justify-center"
-                        style={{ background: 'hsl(142 70% 42% / 0.07)', border: '1px solid hsl(142 70% 42% / 0.2)', animation: 'goldBreath 3s ease-in-out infinite' }}>
+                        style={{ background:'hsl(142 70% 42% / 0.07)', border:'1px solid hsl(142 70% 42% / 0.2)', animation:'goldBreath 3s ease-in-out infinite' }}>
                         <div className="w-3 h-3 rounded-full bg-success" />
                       </div>
                       <p className="font-serif text-[1.7rem] text-foreground font-medium mb-2">You're clear.</p>
@@ -307,241 +285,278 @@ export default function ValetDashboard() {
                 </AnimatePresence>
               </div>
 
-              {/* Two big buttons (or single Begin button for dual task) */}
-              <div className="px-5 pt-3 pb-24 flex-shrink-0 space-y-3" style={{ borderTop: '1px solid hsl(0 0% 11%)' }}>
-                {dualPending ? (
-                  <motion.button className="w-full h-16 rounded-pill bg-foreground text-background font-bold text-sm tracking-wide"
-                    whileTap={{ scale: 0.975 }} onClick={() => go('dual-step1')}>Begin Dual Task</motion.button>
-                ) : (
-                  <>
-                    <motion.button className="w-full h-[60px] rounded-pill bg-foreground text-background font-bold text-sm tracking-wide"
-                      whileTap={{ scale: 0.975 }} onClick={() => go('park-capture')}>Park Arrival</motion.button>
-                    <motion.button className="w-full h-[60px] rounded-pill font-bold text-sm tracking-wide text-foreground"
-                      style={{ background: 'hsl(0 0% 13%)', border: '1px solid hsl(0 0% 21%)' }}
-                      whileTap={{ scale: 0.975 }} onClick={() => go('fetch-routing')}>Fetch Car</motion.button>
-                  </>
+              {/* Bottom buttons */}
+              <div className="px-5 pt-3 pb-24 flex-shrink-0 space-y-3" style={{ borderTop:'1px solid hsl(0 0% 11%)' }}>
+                {/* Park Arrival — always visible */}
+                <motion.button className="w-full h-[60px] rounded-pill bg-foreground text-background font-bold text-sm tracking-wide"
+                  whileTap={{ scale:0.975 }} onClick={() => go('park-form')}>Park Arrival</motion.button>
+                {/* Fetch Car — only when a retrieval task is assigned */}
+                {fetchPending && (
+                  <motion.button className="w-full h-[60px] rounded-pill font-bold text-sm tracking-wide text-foreground"
+                    style={{ background:'hsl(0 0% 13%)', border:'1px solid hsl(0 0% 21%)' }}
+                    whileTap={{ scale:0.975 }} onClick={() => go('fetch-routing')}>Fetch Car</motion.button>
                 )}
               </div>
             </motion.div>
           )}
 
-          {/* ═══════ PARK STEP 1 — CAPTURE ═══════ */}
-          {step === 'park-capture' && (
-            <motion.div key="park-capture" className="absolute inset-0 flex flex-col" {...slide}>
-              <StepHdr tag="Park · Step 1 of 3" back={() => go('idle')} step={1} total={3} />
-              <div className="px-5 pb-1 flex-shrink-0">
-                <h2 className="font-serif text-[1.6rem] text-foreground font-medium">Plate &amp; Number</h2>
+          {/* ═══ PARK FORM — Step 1 (car # + mobile + Self Assign) ═══ */}
+          {step === 'park-form' && (
+            <motion.div key="park-form" className="absolute inset-0 flex flex-col" {...slide}>
+              <StepHdr tag="Park Arrival · Step 1" back={() => go('idle')} step={1} total={parkTotal} />
+              <div className="px-5 pb-2 flex-shrink-0">
+                <h2 className="font-serif text-[1.6rem] text-foreground font-medium">New Arrival</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">Type the plate &amp; guest mobile.</p>
               </div>
               <div className="flex-1 px-5 py-4 overflow-y-auto space-y-5">
+
+                {/* Car Number */}
                 <div>
-                  <label className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] block mb-2">Car Plate</label>
-                  <Input className="h-14 bg-secondary border-border text-foreground font-mono text-2xl tracking-[0.22em] uppercase placeholder:normal-case placeholder:font-sans placeholder:text-base placeholder:tracking-normal placeholder:text-muted-foreground/40"
-                    style={{ transition: 'border-color 0.2s' }} onFocus={inputFocus} onBlur={inputBlur}
-                    placeholder="MH-12-AB-1234" value={form.plate}
-                    onChange={e => setForm(f => ({ ...f, plate: e.target.value }))} />
+                  <label className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] block mb-2">Car Number</label>
+                  <Input
+                    className="h-14 bg-secondary border-border text-foreground font-mono text-xl tracking-[0.12em] uppercase placeholder:normal-case placeholder:font-sans placeholder:text-sm placeholder:tracking-normal placeholder:text-muted-foreground/40"
+                    {...focusStyle}
+                    placeholder="e.g. MH02AH8897"
+                    value={form.plate}
+                    onChange={e => setForm(f => ({ ...f, plate: e.target.value }))}
+                  />
                 </div>
+
+                {/* Mobile Number with country code */}
                 <div>
-                  <label className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] block mb-2">Guest WhatsApp</label>
-                  <Input type="tel" className="h-12 bg-secondary border-border text-foreground placeholder:text-muted-foreground/40"
-                    style={{ transition: 'border-color 0.2s' }} onFocus={inputFocus} onBlur={inputBlur}
-                    placeholder="+91 98765 43210" value={form.phone}
-                    onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
-                  <p className="text-[10px] text-muted-foreground mt-1.5">Guest gets instant valet ticket</p>
+                  <label className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] block mb-2">Guest Mobile</label>
+                  <div className="flex gap-2 items-stretch relative">
+                    {/* Country code button */}
+                    <div className="relative flex-shrink-0">
+                      <button
+                        className="h-12 px-3 rounded-xl bg-secondary border border-border flex items-center gap-1 text-sm font-mono text-foreground"
+                        style={{ transition:'border-color 0.2s', minWidth:'58px' }}
+                        onClick={() => setShowCodes(v => !v)}
+                      >
+                        {countryCode}
+                        <ChevronDown size={11} className="text-muted-foreground" />
+                      </button>
+                      <AnimatePresence>
+                        {showCodes && (
+                          <motion.div
+                            className="absolute top-full left-0 mt-1 z-50 rounded-xl overflow-hidden border border-border"
+                            style={{ background:'hsl(0 0% 10%)', minWidth:'70px', boxShadow:'0 8px 30px rgba(0,0,0,0.6)' }}
+                            initial={{ opacity:0, y:-8, scale:0.95 }} animate={{ opacity:1, y:0, scale:1 }}
+                            exit={{ opacity:0, y:-8, scale:0.95 }} transition={{ duration:0.15 }}
+                          >
+                            {COUNTRY_CODES.map(c => (
+                              <button key={c}
+                                className="w-full px-3 py-2.5 text-left text-sm font-mono text-foreground"
+                                style={{ borderBottom:'1px solid hsl(0 0% 14%)' }}
+                                onClick={() => { setCC(c); setShowCodes(false); }}
+                              >{c}</button>
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                    {/* Phone input */}
+                    <Input
+                      type="tel"
+                      className="flex-1 h-12 bg-secondary border-border text-foreground placeholder:text-muted-foreground/40"
+                      {...focusStyle}
+                      placeholder="9876543210"
+                      value={form.phone}
+                      onChange={e => setForm(f => ({ ...f, phone: e.target.value.replace(/[^0-9]/g,'').slice(0,10) }))}
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1.5">WhatsApp confirmation sent instantly</p>
                 </div>
               </div>
               <ActionBtn onClick={() => {
                 if (!form.plate.trim() || !form.phone.trim()) { toast.error('Fill all fields'); return; }
-                toast('Notifying guest…', { description: 'Ticket sending' });
+                toast(`WhatsApp sent to ${countryCode} ${form.phone}`, { description:'Guest confirmed' });
                 go('park-routing');
-              }}>Self Assign &amp; Notify Guest</ActionBtn>
+              }}>Self Assign</ActionBtn>
             </motion.div>
           )}
 
-          {/* ═══════ PARK STEP 2 — ROUTING ═══════ */}
+          {/* ═══ PARK ROUTING — Step 2 ═══ */}
           {step === 'park-routing' && (
             <motion.div key="park-routing" className="absolute inset-0 flex flex-col" {...slide}>
-              <StepHdr tag="Park · Step 2 of 3" step={2} total={3} />
-              <DestHdr eyebrow="Drive to" title="Parking Phase 2" sub={form.plate.toUpperCase() || undefined} />
+              <StepHdr tag={`Park Arrival · Step 2`} step={2} total={parkTotal} />
+              <DestHdr eyebrow="Drive to" title="Phase 2" sub={form.plate.toUpperCase()||undefined} />
+              {/* Grab key reminder if dual task pending */}
+              {fetchPending && (
+                <div className="mx-5 mb-3 rounded-xl px-4 py-3 flex-shrink-0 flex items-center gap-3 bg-secondary">
+                  <Key size={14} style={{ color:'hsl(43 77% 52%)' }} />
+                  <p className="text-xs text-foreground">
+                    <span className="font-semibold" style={{ color:'hsl(43 77% 60%)' }}>Grab Key #{FETCH.hook}</span>
+                    {' '}from locker before you leave
+                  </p>
+                </div>
+              )}
               <MapBlock dest="phase2" />
-              <ActionBtn onClick={() => go('park-key-gate')}>Car Parked at Phase 2</ActionBtn>
+              <ActionBtn onClick={() => go('park-confirm')}>Car Parked</ActionBtn>
             </motion.div>
           )}
 
-          {/* ═══════ PARK KEY GATE — HARD STOP ═══════ */}
-          {step === 'park-key-gate' && (
-            <motion.div key="park-key-gate" className="absolute inset-0 flex flex-col" {...slide}>
+          {/* ═══ PARK CONFIRM — Step 3 (slot name) ═══ */}
+          {step === 'park-confirm' && (
+            <motion.div key="park-confirm" className="absolute inset-0 flex flex-col" {...slide}>
+              <StepHdr tag={`Park Arrival · Step 3`} step={3} total={parkTotal} />
+              <div className="px-5 pb-2 flex-shrink-0">
+                <h2 className="font-serif text-[1.6rem] text-foreground font-medium">Confirm Slot</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">Where exactly is the car?</p>
+              </div>
+              <div className="flex-1 px-5 py-4 overflow-y-auto">
+                <Input
+                  className="h-12 bg-secondary border-border text-foreground placeholder:text-muted-foreground/40 mb-4"
+                  {...focusStyle}
+                  placeholder="e.g. Opp V11"
+                  value={form.slot}
+                  onChange={e => setForm(f => ({ ...f, slot: e.target.value }))}
+                />
+                {/* Slot chips */}
+                <div className="flex flex-wrap gap-2">
+                  {SLOT_CHIPS.map(s => (
+                    <button key={s}
+                      className="px-3 py-1.5 rounded-full text-xs font-medium"
+                      style={{
+                        background: form.slot===s ? 'hsl(0 0% 96%)' : 'hsl(0 0% 14%)',
+                        color:      form.slot===s ? 'hsl(0 0% 4%)'  : 'hsl(0 0% 65%)',
+                        border:'1px solid hsl(0 0% 20%)',
+                        transition:'all 0.15s',
+                      }}
+                      onClick={() => setForm(f => ({ ...f, slot: s }))}
+                    >{s}</button>
+                  ))}
+                </div>
+              </div>
+              <ActionBtn onClick={() => {
+                if (!form.slot?.trim()) { toast.error('Enter slot name'); return; }
+                // If fetch task pending in same zone: continue to dual flow; else simple key gate
+                go(fetchPending ? 'dual-fetch' : 'park-key');
+              }}>Confirm Park</ActionBtn>
+            </motion.div>
+          )}
+
+          {/* ═══ PARK KEY GATE (solo flow only) — Step 4 of 4 ═══ */}
+          {step === 'park-key' && (
+            <motion.div key="park-key" className="absolute inset-0 flex flex-col" {...slide}>
+              <StepHdr tag="Park Arrival · Step 4 of 4" step={4} total={4} />
               <div className="flex-1 flex flex-col items-center justify-center px-5 py-6">
                 <HardStopBadge />
                 <motion.div className="w-16 h-16 rounded-full flex items-center justify-center mb-8"
-                  style={keyGateStyle} animate={{ scale: [1, 1.05, 1] }} transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}>
-                  <Key size={28} style={{ color: 'hsl(43 77% 52%)' }} />
+                  style={keyGateStyle} animate={{ scale:[1,1.05,1] }} transition={{ duration:2.5,repeat:Infinity,ease:'easeInOut' }}>
+                  <Key size={28} style={{ color:'hsl(43 77% 52%)' }} />
                 </motion.div>
                 <h2 className="font-serif text-[1.6rem] text-foreground font-medium text-center mb-2">Hang the Key</h2>
-                <p className="text-sm text-muted-foreground text-center mb-8">Log the locker hook you used.</p>
+                <p className="text-sm text-muted-foreground text-center mb-8">Head to porch. Log the hook you used.</p>
                 <div className="w-full">
                   <label className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] block mb-3">Locker Hook #</label>
                   <Input type="number" className="h-16 bg-secondary border-border text-foreground font-mono text-3xl text-center tracking-widest placeholder:text-muted-foreground/40"
-                    style={{ transition: 'border-color 0.2s' }}
-                    onFocus={e => { e.target.style.borderColor = 'hsl(43 77% 52% / 0.5)'; }}
-                    onBlur={e => { e.target.style.borderColor = ''; }}
-                    placeholder="00" value={keyHook} onChange={e => setKeyHook(e.target.value)} />
+                    onFocus={e=>{e.target.style.borderColor='hsl(43 77% 52% / 0.5)'}} onBlur={e=>{e.target.style.borderColor=''}}
+                    style={{transition:'border-color 0.2s'}} placeholder="00" value={keyHook} onChange={e=>setKeyHook(e.target.value)} />
                 </div>
               </div>
               <ActionBtn onClick={() => {
                 if (!keyHook.trim()) { toast.error('Enter hook number'); return; }
-                toast.success('Task complete!', { description: `${form.plate.toUpperCase() || 'Car'} · Hook #${keyHook}` });
-                setForm({ plate: '', phone: '' }); clearGates(); go('idle');
-              }}>Key Secured ✓</ActionBtn>
+                toast.success('Parked!', { description:`${form.plate.toUpperCase()} · ${form.slot} · Hook #${keyHook}` });
+                setForm({plate:'',phone:'',slot:''}); clearGates(); go('idle');
+              }}>Complete</ActionBtn>
             </motion.div>
           )}
 
-          {/* ═══════ FETCH ROUTING ═══════ */}
+          {/* ═══ DUAL FETCH — Step 4 of 6 (fetch Car 1 from same zone) ═══ */}
+          {step === 'dual-fetch' && (
+            <motion.div key="dual-fetch" className="absolute inset-0 flex flex-col" {...slide}>
+              <StepHdr tag="Park Arrival · Step 4 of 6" step={4} total={6} />
+              <DestHdr eyebrow={`Fetch from Phase 2`} title={`${FETCH.carLabel} (${FETCH.guestLabel})`} sub={FETCH.plate} />
+              <div className="mx-5 mb-3 rounded-xl px-4 py-3 flex-shrink-0 flex items-center gap-3 bg-secondary">
+                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor:'hsl(43 77% 52%)' }} />
+                <p className="text-xs text-muted-foreground">You're already in Phase 2 — use Key #{FETCH.hook}</p>
+              </div>
+              <MapBlock dest={FETCH.phase} />
+              <ActionBtn onClick={() => go('dual-otp')}>Car Picked Up</ActionBtn>
+            </motion.div>
+          )}
+
+          {/* ═══ DUAL OTP — Step 5 of 6 [HARD STOP] ═══ */}
+          {/* INLINED to prevent remount on setOtp */}
+          {step === 'dual-otp' && (
+            <motion.div key="dual-otp" className="absolute inset-0 flex flex-col" {...slide}>
+              <StepHdr tag="Park Arrival · Step 5 of 6" step={5} total={6} />
+              <div className="flex-1 flex flex-col items-center justify-center px-5 py-6">
+                <HardStopBadge />
+                <h2 className="font-serif text-[1.6rem] text-foreground font-medium text-center mb-2">Handover OTP</h2>
+                <p className="text-sm text-muted-foreground text-center mb-10">
+                  Get 4-digit code from {FETCH.guestLabel}.
+                </p>
+                <OtpInput value={otp} onChange={setOtp} />
+              </div>
+              <ActionBtn disabled={!otpFilled} onClick={() => {
+                if (!otpFilled) { toast.error('Enter full 4-digit OTP'); return; }
+                toast('Handover done.', { description:`${FETCH.guestLabel} · OTP ${otp}` });
+                clearGates(); go('dual-key');
+              }}>Confirm Handover</ActionBtn>
+            </motion.div>
+          )}
+
+          {/* ═══ DUAL KEY — Step 6 of 6 [HARD STOP] (hang Car 2's key) ═══ */}
+          {step === 'dual-key' && (
+            <motion.div key="dual-key" className="absolute inset-0 flex flex-col" {...slide}>
+              <StepHdr tag="Park Arrival · Step 6 of 6" step={6} total={6} />
+              <div className="flex-1 flex flex-col items-center justify-center px-5 py-6">
+                <HardStopBadge />
+                <motion.div className="w-16 h-16 rounded-full flex items-center justify-center mb-8"
+                  style={keyGateStyle} animate={{ scale:[1,1.05,1] }} transition={{ duration:2.5,repeat:Infinity,ease:'easeInOut' }}>
+                  <Key size={28} style={{ color:'hsl(43 77% 52%)' }} />
+                </motion.div>
+                <h2 className="font-serif text-[1.6rem] text-foreground font-medium text-center mb-2">Hang Car 2's Key</h2>
+                <p className="text-sm text-muted-foreground text-center mb-2">
+                  {form.plate.toUpperCase() || 'Car 2'} · {form.slot}
+                </p>
+                <p className="text-sm text-muted-foreground text-center mb-8">Log the locker hook number.</p>
+                <div className="w-full">
+                  <label className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] block mb-3">Locker Hook #</label>
+                  <Input type="number" className="h-16 bg-secondary border-border text-foreground font-mono text-3xl text-center tracking-widest placeholder:text-muted-foreground/40"
+                    onFocus={e=>{e.target.style.borderColor='hsl(43 77% 52% / 0.5)'}} onBlur={e=>{e.target.style.borderColor=''}}
+                    style={{transition:'border-color 0.2s'}} placeholder="00" value={keyHook} onChange={e=>setKeyHook(e.target.value)} />
+                </div>
+              </div>
+              <ActionBtn onClick={() => {
+                if (!keyHook.trim()) { toast.error('Enter hook number'); return; }
+                toast.success('All done!', { description:`Car 2 · Hook #${keyHook} · Car 1 handed to ${FETCH.guestLabel}` });
+                setFetchPending(false);
+                setForm({plate:'',phone:'',slot:''});
+                clearGates();
+                go('idle');
+              }}>Complete</ActionBtn>
+            </motion.div>
+          )}
+
+          {/* ═══ STANDALONE FETCH ROUTING ═══ */}
           {step === 'fetch-routing' && (
             <motion.div key="fetch-routing" className="absolute inset-0 flex flex-col" {...slide}>
               <div className="px-5 pt-12 pb-3 flex-shrink-0">
                 <p className="text-[9px] font-bold uppercase tracking-[0.28em] text-muted-foreground mb-1">Fetch Task</p>
               </div>
-              <DestHdr eyebrow="Head to" title={FETCH.location} sub={FETCH.plate} />
+              <DestHdr eyebrow="Head to" title={FETCH.location} sub={`${FETCH.carLabel} · ${FETCH.plate}`} />
               <MapBlock dest={FETCH.phase} keyBadge={FETCH.hook} />
-              <ActionBtn onClick={() => go('fetch-otp-gate')}>Car Picked Up</ActionBtn>
+              <ActionBtn onClick={() => go('fetch-otp')}>Car Picked Up</ActionBtn>
             </motion.div>
           )}
 
-          {/* ═══════ FETCH OTP GATE — HARD STOP ═══════ */}
-          {/* INLINED — no wrapper component to avoid remount killing OtpInput focus */}
-          {step === 'fetch-otp-gate' && (
-            <motion.div key="fetch-otp-gate" className="absolute inset-0 flex flex-col" {...slide}>
+          {/* ═══ STANDALONE FETCH OTP [HARD STOP] ═══ */}
+          {step === 'fetch-otp' && (
+            <motion.div key="fetch-otp" className="absolute inset-0 flex flex-col" {...slide}>
               <div className="flex-1 flex flex-col items-center justify-center px-5 py-6">
                 <HardStopBadge />
                 <h2 className="font-serif text-[1.6rem] text-foreground font-medium text-center mb-2">Handover OTP</h2>
-                <p className="text-sm text-muted-foreground text-center mb-10">
-                  Get the 4-digit code from the guest.
-                </p>
+                <p className="text-sm text-muted-foreground text-center mb-10">Get 4-digit code from {FETCH.guestLabel}.</p>
                 <OtpInput value={otp} onChange={setOtp} />
               </div>
-              <ActionBtn
-                disabled={!otpFilled}
-                onClick={() => {
-                  if (!otpFilled) { toast.error('Enter full 4-digit OTP'); return; }
-                  toast.success('Handover confirmed!', { description: `OTP ${otp} verified` });
-                  setFetchPending(false); clearGates(); go('idle');
-                }}
-              >Confirm Handover</ActionBtn>
-            </motion.div>
-          )}
-
-          {/* ════════════════════════════════════════════════════════
-              DUAL TASK — 5-step "zero deadheading" flow
-              One trip, two jobs, same parking zone (Phase 2):
-              1. Grab Naresh's key (#67) at porch before leaving
-              2. Drive Patel's car to Phase 2, park it
-              3. Walk to Naresh's car (same Phase 2), get in
-              4. Drive back to porch → OTP handover to Naresh [HARD STOP]
-              5. Hang Patel's key in locker [HARD STOP]
-          ════════════════════════════════════════════════════════ */}
-
-          {/* DUAL STEP 1 — Grab Naresh's key from locker */}
-          {step === 'dual-step1' && (
-            <motion.div key="dual-step1" className="absolute inset-0 flex flex-col" {...slide}>
-              <StepHdr tag="Dual Task · Step 1 of 5" back={() => go('idle')} step={1} total={5} />
-              <div className="flex-1 flex flex-col items-center justify-center px-5 py-4">
-                <motion.div className="w-16 h-16 rounded-full flex items-center justify-center mb-8"
-                  style={keyGateStyle} animate={{ scale: [1, 1.06, 1] }} transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}>
-                  <Key size={28} style={{ color: 'hsl(43 77% 52%)' }} />
-                </motion.div>
-                <h2 className="font-serif text-[1.6rem] text-foreground font-medium text-center mb-2">Grab the Key</h2>
-                <p className="text-sm text-muted-foreground text-center mb-8">
-                  Pick up Mr. Naresh's key before leaving the porch.
-                </p>
-                <div className="w-full rounded-2xl px-6 py-5 text-center"
-                  style={{ background: 'hsl(43 77% 52% / 0.07)', border: '1.5px solid hsl(43 77% 52% / 0.42)' }}>
-                  <p className="text-[9px] font-bold uppercase tracking-[0.26em] mb-2" style={{ color: 'hsl(43 77% 62%)' }}>Locker Hook</p>
-                  <p className="font-mono font-black text-[4.5rem] leading-none tabular" style={{ color: 'hsl(43 77% 52%)' }}>
-                    #{DUAL.keyHook}
-                  </p>
-                </div>
-              </div>
-              <ActionBtn onClick={() => go('dual-step2-routing')}>Got the Key</ActionBtn>
-            </motion.div>
-          )}
-
-          {/* DUAL STEP 2 — Drive Patel's car to Phase 2, park it */}
-          {step === 'dual-step2-routing' && (
-            <motion.div key="dual-step2-routing" className="absolute inset-0 flex flex-col" {...slide}>
-              <StepHdr tag="Dual Task · Step 2 of 5" step={2} total={5} />
-              <DestHdr eyebrow="Drive to" title="Phase 2" sub="Park Mr. Patel's car here" />
-              <MapBlock dest={DUAL.parkPhase} />
-              <ActionBtn onClick={() => go('dual-step3-routing')}>Mr. Patel's Car Parked</ActionBtn>
-            </motion.div>
-          )}
-
-          {/* DUAL STEP 3 — Fetch Naresh's car (already in Phase 2 — no extra drive) */}
-          {step === 'dual-step3-routing' && (
-            <motion.div key="dual-step3-routing" className="absolute inset-0 flex flex-col" {...slide}>
-              <StepHdr tag="Dual Task · Step 3 of 5" step={3} total={5} />
-              <DestHdr eyebrow="Fetch from Phase 2" title={`${DUAL.guestName}'s Car`} sub={DUAL.nareshPlate} />
-              <div className="mx-5 mb-3 rounded-xl px-4 py-3 flex-shrink-0 flex items-center gap-3 bg-secondary">
-                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: 'hsl(43 77% 52%)' }} />
-                <p className="text-xs text-muted-foreground">You're already in Phase 2 — walk to the car</p>
-              </div>
-              <MapBlock dest={DUAL.fetchPhase} />
-              <ActionBtn onClick={() => go('dual-step4-otp')}>Car Picked Up</ActionBtn>
-            </motion.div>
-          )}
-
-          {/* DUAL STEP 4 — OTP Handover at porch — HARD STOP */}
-          {/* INLINED — no wrapper component, keeps OtpInput stable on setOtp */}
-          {step === 'dual-step4-otp' && (
-            <motion.div key="dual-step4-otp" className="absolute inset-0 flex flex-col" {...slide}>
-              <StepHdr tag="Dual Task · Step 4 of 5" step={4} total={5} />
-              <div className="flex-1 flex flex-col items-center justify-center px-5 py-6">
-                <HardStopBadge />
-                <h2 className="font-serif text-[1.6rem] text-foreground font-medium text-center mb-2">Handover OTP</h2>
-                <p className="text-sm text-muted-foreground text-center mb-2">
-                  Get 4-digit code from {DUAL.guestName}.
-                </p>
-                <p className="font-mono text-sm text-muted-foreground mb-10 tracking-wider">{DUAL.guestPhone}</p>
-                <OtpInput value={otp} onChange={setOtp} />
-              </div>
-              <ActionBtn
-                disabled={!otpFilled}
-                onClick={() => {
-                  if (!otpFilled) { toast.error('Enter full 4-digit OTP'); return; }
-                  toast('Handover done.', { description: `${DUAL.guestName} · OTP ${otp}` });
-                  clearGates(); go('dual-step5-key');
-                }}
-              >Confirm Handover</ActionBtn>
-            </motion.div>
-          )}
-
-          {/* DUAL STEP 5 — Hang Patel's key in locker — HARD STOP */}
-          {step === 'dual-step5-key' && (
-            <motion.div key="dual-step5-key" className="absolute inset-0 flex flex-col" {...slide}>
-              <StepHdr tag="Dual Task · Step 5 of 5" step={5} total={5} />
-              <div className="flex-1 flex flex-col items-center justify-center px-5 py-6">
-                <HardStopBadge />
-                <motion.div className="w-16 h-16 rounded-full flex items-center justify-center mb-8"
-                  style={keyGateStyle} animate={{ scale: [1, 1.05, 1] }} transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}>
-                  <Key size={28} style={{ color: 'hsl(43 77% 52%)' }} />
-                </motion.div>
-                <h2 className="font-serif text-[1.6rem] text-foreground font-medium text-center mb-2">
-                  Hang Mr. Patel's Key
-                </h2>
-                <p className="text-sm text-muted-foreground text-center mb-8">Log the locker hook number.</p>
-                <div className="w-full">
-                  <label className="text-[10px] text-muted-foreground uppercase tracking-[0.2em] block mb-3">Locker Hook #</label>
-                  <Input type="number" className="h-16 bg-secondary border-border text-foreground font-mono text-3xl text-center tracking-widest placeholder:text-muted-foreground/40"
-                    style={{ transition: 'border-color 0.2s' }}
-                    onFocus={e => { e.target.style.borderColor = 'hsl(43 77% 52% / 0.5)'; }}
-                    onBlur={e => { e.target.style.borderColor = ''; }}
-                    placeholder="00" value={keyHook} onChange={e => setKeyHook(e.target.value)} />
-                </div>
-              </div>
-              <ActionBtn onClick={() => {
-                if (!keyHook.trim()) { toast.error('Enter hook number'); return; }
-                toast.success('Dual task complete!', { description: `All done · Hook #${keyHook}` });
-                setDualPending(false); clearGates(); go('idle');
-              }}>Key Secured ✓</ActionBtn>
+              <ActionBtn disabled={!otpFilled} onClick={() => {
+                if (!otpFilled) { toast.error('Enter full 4-digit OTP'); return; }
+                toast.success('Handover confirmed!', { description:`${FETCH.guestLabel} · OTP ${otp} verified` });
+                setFetchPending(false); clearGates(); go('idle');
+              }}>Confirm Handover</ActionBtn>
             </motion.div>
           )}
 
